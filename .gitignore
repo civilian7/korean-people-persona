@@ -1,0 +1,22 @@
+# 대용량 원본 데이터 / 생성물 — 버전관리 제외
+/data/
+/database/
+
+# 파이썬 가상환경 / 캐시
+/.venv/
+__pycache__/
+*.pyc
+
+# 실행 로그
+/logs/
+
+# 편집기 / OS 부산물
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 개인 / 비공식 산출물 (SNS 홍보 초안 등)
+PROMO.md
+DRAFT*.md
+.private/
