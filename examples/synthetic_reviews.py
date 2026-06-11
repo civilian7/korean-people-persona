@@ -18,7 +18,8 @@ from typing import Any
 from common import (DEFAULT_MODEL, PROFILE_FIELDS, ROOT, build_profile, call_tool,
                     llm_json, make_llm_client, mcp_session, ngram_overlap, require_api_key)
 
-SEED_QUERY = "캠핑"
+# '캠핑'(2글자)은 trigram 토크나이저에 매칭되지 않는다 → 공백 포함 구절 + 합성어 OR 조합 사용
+SEED_QUERY = '"캠핑 " OR 캠핑장 OR 캠핑카'
 REVIEWS_PER_PERSONA = 2
 
 REVIEW_TEMPLATE = """당신은 아래 인물입니다. 이 인물의 어휘·생활환경에서 벗어나지 마세요.
