@@ -24,11 +24,13 @@ def search_persona(
     full: bool = False,
 ) -> dict[str, Any]:
     """
-    페르소나 검색. FTS5 자유 텍스트 + 인구통계 필터 결합.
+    페르소나 검색. FTS5(trigram 토크나이저) 자유 텍스트 + 인구통계 필터 결합.
 
     Args:
-        query: FTS5 MATCH 표현식. 한국어는 `등산* AND 트로트*`처럼 prefix 권장.
-               None이면 텍스트 검색 없이 필터만 적용.
+        query: FTS5 MATCH 표현식. trigram이라 3글자 이상이면 조사가 붙은 형태도
+               부분 문자열로 그대로 매칭됨 (`등산과`, `트로트`) — prefix `*` 불필요.
+               단 2글자 이하 검색어는 매칭 불가 → 3글자 이상으로 늘리거나
+               filters의 `*_like` 사용. None이면 텍스트 검색 없이 필터만 적용.
         fields: 검색 대상 FTS 컬럼 제한. 미지정 시 전체.
         filters: 인구통계 필터 dict (db.build_filter_clause 참조).
         limit: 최대 반환 개수 (1..100, 기본 20).

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "korean-people-persona": {
+      "command": "python",
+      "args": ["-m", "mcp_server"],
+      "env": {
+        "PYTHONPATH": "src"
+      }
+    }
+  }
+}
