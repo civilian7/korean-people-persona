@@ -10,6 +10,7 @@ import os
 import re
 import sys
 from collections import defaultdict
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -98,15 +99,28 @@ def build_profile(p: dict[str, Any], fields: list[str] | None = None) -> str:
 
 
 def extract_json(text: str) -> dict[str, Any] | None:
-    """텍스트에서 첫 JSON 오브젝트 추출 (모델이 부가 설명을 붙여도 견디도록)."""
-    m = re.search(r"\{.*\}", text, re.DOTALL)
-    if not m:
-        return None
-    try:
-        parsed = json.loads(m.group())
-    except json.JSONDecodeError:
-        return None
-    return parsed if isinstance(parsed, dict) else None
+    """텍스트에서 첫 완전한 JSON 오브젝트 추출 (모델이 부가 설명을 붙여도 견디도록)."""
+    for m in re.finditer(r"\{", text):
+        candidate = text[m.start():]
+        depth = 0
+        end = 0
+        for i, ch in enumerate(candidate):
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i + 1
+                    break
+        if not end:
+            continue
+        try:
+            parsed = json.loads(candidate[:end])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
 
 
 def require_api_key() -> None:
@@ -143,9 +157,10 @@ def age_band(age: int) -> str:
     return f"{(age // 10) * 10}대" if age < 80 else "80대+"
 
 
-def mean_by(items: list[Any], key_fn, value_fn) -> dict[str, dict[str, Any]]:
+def mean_by(items: list[Any], key_fn: Callable[[Any], Any],
+            value_fn: Callable[[Any], float]) -> dict[Any, dict[str, Any]]:
     """key_fn 으로 그룹핑해 value_fn 값의 {n, mean} 집계."""
-    buckets: dict[str, list[float]] = defaultdict(list)
+    buckets: dict[Any, list[float]] = defaultdict(list)
     for it in items:
         buckets[key_fn(it)].append(value_fn(it))
     return {k: {"n": len(v), "mean": round(sum(v) / len(v), 2)}

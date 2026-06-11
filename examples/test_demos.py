@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from common import age_band, allocate_quota, extract_json, mean_by, ngram_overlap
+from common import age_band, allocate_quota, build_profile, extract_json, mean_by, ngram_overlap
 
 
 def test_allocate_quota_총합은_n과_일치():
@@ -18,10 +18,10 @@ def test_allocate_quota_총합은_n과_일치():
 
 def test_allocate_quota_비례_배분():
     groups = [{"cnt": 70}, {"cnt": 20}, {"cnt": 10}]
-    quotas = {id(g): q for g, q in allocate_quota(groups, 10)}
-    assert quotas[id(groups[0])] == 7
-    assert quotas[id(groups[1])] == 2
-    assert quotas[id(groups[2])] == 1
+    quotas = allocate_quota(groups, 10)
+    assert quotas[0][1] == 7
+    assert quotas[1][1] == 2
+    assert quotas[2][1] == 1
 
 
 def test_allocate_quota_0표본_셀은_제외():
@@ -62,3 +62,23 @@ def test_ngram_overlap_표현_복사_검출():
 
 def test_ngram_overlap_무관한_문장은_0():
     assert ngram_overlap("완전히 다른 문장 하나입니다", "전혀 상관없는 별개의 글귀") == 0
+
+
+def test_extract_json_여러_오브젝트면_첫번째():
+    text = '{"first": 1} 그리고 {"second": 2}'
+    assert extract_json(text) == {"first": 1}
+
+
+def test_extract_json_중첩_오브젝트():
+    text = '결과: {"outer": {"inner": 3}, "ok": true}'
+    assert extract_json(text) == {"outer": {"inner": 3}, "ok": True}
+
+
+def test_age_band_80세_경계():
+    assert age_band(80) == "80대+"
+
+
+def test_build_profile_None_필드_제외():
+    p = {"persona": "한 줄 소개", "sex": "여자", "age": None}
+    out = build_profile(p, ["persona", "sex", "age"])
+    assert out == "- persona: 한 줄 소개\n- sex: 여자"
