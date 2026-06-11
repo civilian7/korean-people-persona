@@ -40,7 +40,11 @@ def ask_preference(client: Any, model: str, persona: dict[str, Any],
     first, second = (copy_a, copy_b) if a_first else (copy_b, copy_a)
     user = f"카피 1: {first}\n카피 2: {second}"
     parsed = llm_json(client, model, AB_TEMPLATE.format(profile=build_profile(persona)), user)
-    choice = (parsed or {}).get("choice")
+    try:
+        choice = int((parsed or {}).get("choice"))
+    except (TypeError, ValueError):
+        choice = None
+
     if choice not in (1, 2):
         return {"prefer": None, "reason": ""}
     picked_first = choice == 1
