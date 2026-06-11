@@ -82,3 +82,30 @@ def test_build_profile_None_필드_제외():
     p = {"persona": "한 줄 소개", "sex": "여자", "age": None}
     out = build_profile(p, ["persona", "sex", "age"])
     assert out == "- persona: 한 줄 소개\n- sex: 여자"
+
+
+def test_bot_격식어휘_해지는_단계진행():
+    from user_simulator import DummyTelecomBot
+    bot = DummyTelecomBot()
+    reply, done = bot.reply("요금제 해지하고 싶습니다")
+    assert "위약금" in reply
+    assert not done
+    reply, done = bot.reply("해지 진행")
+    assert done
+
+
+def test_bot_구어체는_동문서답():
+    from user_simulator import DummyTelecomBot
+    bot = DummyTelecomBot()
+    reply, done = bot.reply("인터넷 그만 쓰고 싶은데예")
+    assert "이해하지 못했습니다" in reply
+    assert not done
+
+
+def test_bot_정확한_문구_아니면_미완료():
+    from user_simulator import DummyTelecomBot
+    bot = DummyTelecomBot()
+    bot.reply("해지요")
+    reply, done = bot.reply("네 해주세요")
+    assert not done
+    assert "해지 진행" in reply
