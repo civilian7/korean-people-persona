@@ -117,6 +117,7 @@ CREATE INDEX idx_persona_demo    ON persona(sex, age);
 CREATE INDEX idx_persona_region  ON persona(province, district);
 CREATE INDEX idx_persona_edu_occ ON persona(education_level, occupation);
 CREATE INDEX idx_persona_family  ON persona(family_type, marital_status);
+CREATE INDEX idx_persona_prov_sex ON persona(province, sex);  -- 시도×성별 집계/층화 샘플링용 커버링 인덱스
 CREATE UNIQUE INDEX idx_persona_uuid ON persona(uuid);
 """
 
