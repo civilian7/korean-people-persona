@@ -81,7 +81,8 @@ FTS_COLUMNS = [
 
 DDL = f"""
 CREATE TABLE persona (
-  uuid                       TEXT    PRIMARY KEY,                                  -- 32자 hex 문자열 (대시 없음)
+  id                         INTEGER PRIMARY KEY,                                  -- rowid 별칭 (자동 증가)
+  uuid                       TEXT    NOT NULL,                                     -- 원본 32자 hex 문자열 (대시 없음)
   -- 페르소나 서술 (긴 한국어 텍스트) ----------------------------------------------
   persona                    TEXT    NOT NULL,                                     -- 핵심 1~2문장 요약
   professional_persona       TEXT    NOT NULL,                                     -- 직업/업무 페르소나
@@ -116,15 +117,17 @@ CREATE INDEX idx_persona_demo    ON persona(sex, age);
 CREATE INDEX idx_persona_region  ON persona(province, district);
 CREATE INDEX idx_persona_edu_occ ON persona(education_level, occupation);
 CREATE INDEX idx_persona_family  ON persona(family_type, marital_status);
+CREATE UNIQUE INDEX idx_persona_uuid ON persona(uuid);
 """
 
+# trigram: 연속 3글자를 토큰으로 사용 — 형태소 분석 없이 한국어 부분 문자열 매칭 지원.
+# 단, 3글자 미만 검색어는 매칭 불가. trigram 특성상 prefix 인덱스는 불필요.
 FTS_DDL = f"""
 CREATE VIRTUAL TABLE persona_fts USING fts5(
   {", ".join(FTS_COLUMNS)},
   content='persona',
-  content_rowid='rowid',
-  tokenize='unicode61 remove_diacritics 2',
-  prefix='2 3 4'
+  content_rowid='id',
+  tokenize='trigram'
 );
 """
 
@@ -246,14 +249,14 @@ def main() -> int:
 
         print(f"[INFO] 메인 적재 완료: {total:,}행, {time.time()-t0:.1f}s")
 
-        # FTS 빌드
-        print("[INFO] FTS5 가상 테이블 생성 + 빌드")
+        # FTS 빌드 (trigram 토크나이저)
+        print("[INFO] FTS5 가상 테이블 생성 + 빌드 (trigram)")
         conn.executescript(FTS_DDL)
         tf = time.time()
         with conn:
             conn.execute(
                 f"INSERT INTO persona_fts(rowid, {', '.join(FTS_COLUMNS)}) "
-                f"SELECT rowid, {', '.join(FTS_COLUMNS)} FROM persona"
+                f"SELECT id, {', '.join(FTS_COLUMNS)} FROM persona"
             )
         print(f"[INFO] FTS 적재 완료: {time.time()-tf:.1f}s")
 
