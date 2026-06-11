@@ -30,6 +30,12 @@ aggregate (모집단 분포 파악)
 검색어는 trigram 특성상 **3글자 이상**이어야 하며, 조사가 붙은 형태도 부분 문자열로
 매칭된다 (`등산과`, `트로트`). prefix `*`는 불필요하다.
 
+2글자 검색어는 공백을 포함한 구절(`'"캠핑 "'`)이나 합성어 OR 조합(`'캠핑장 OR 캠핑카'`)으로
+우회한다. 또한 필터 값은 **DB의 실제 표기와 정확히 일치**해야 한다. `province`는
+`서울`/`부산`/`경기`/`경상남`처럼 짧은 표기(`부산광역시`는 0건), `district`는 `부산-영도구` 형식,
+`education_level`은 `4년제 대학교` 등 7종이다. 확신이 없으면 필터를 걸기 전에 `aggregate`로
+실제 값을 먼저 확인할 것.
+
 ---
 
 ## 사례 1 — 합성 설문 / FGD 시뮬레이션
@@ -48,7 +54,7 @@ aggregate (모집단 분포 파악)
 aggregate({"group_by": ["province", "sex"]})
 
 // 2) 분포 비례로 층화 샘플링 (셀별 반복 호출)
-sample_persona({"filters": {"province": "경기도", "sex": "여자"}, "n": 3, "full": true})
+sample_persona({"filters": {"province": "경기", "sex": "여자"}, "n": 3, "full": true})
 
 // 3) 각 페르소나로 롤플레이 → 응답 수집 → 가중 집계
 ```
@@ -60,6 +66,17 @@ sample_persona({"filters": {"province": "경기도", "sex": "여자"}, "n": 3, "
 - **응답 형식 고정**: 5점 척도 + 한 줄 이유를 JSON으로 강제해 집계 가능하게 한다.
 - **온도**: 다양성이 목적이므로 낮추지 않는다 (기본값 권장).
 
+### ▶ Claude Code에서 바로 해보기
+
+MCP 서버가 등록된 Claude Code 세션에 아래를 붙여넣으면 코드 없이 같은 시나리오가 재현된다.
+
+```text
+korean-people-persona MCP로 시도×성별 분포에 비례해 페르소나 10명을 층화 샘플링한 뒤(full=true),
+각 인물에게 "월 9,900원에 광고 없이 국내 OTT 3사를 묶어 보는 통합 구독제가 나온다면
+가입하시겠습니까?"를 1~5점 + 한 줄 이유로 답하게 해줘. 각 인물의 프로필(소비 성향·미디어
+습관·경제 상황)에 충실할 것. 전체/성별/연령대/시도별 평균을 표로 집계해줘.
+```
+
 ### 한계 / 주의점
 
 - **실제 여론조사를 대체하지 않는다.** LLM의 사전학습 편향이 응답에 섞이므로
@@ -69,6 +86,8 @@ sample_persona({"filters": {"province": "경기도", "sex": "여자"}, "n": 3, "
 ---
 
 ## 사례 2 — 챗봇/에이전트 평가용 유저 시뮬레이터
+
+> 동작하는 데모: [`examples/user_simulator.py`](../examples/user_simulator.py)
 
 ### 시나리오
 
@@ -95,6 +114,15 @@ sample_persona({"filters": {"age_max": 29}, "n": 5, "full": true})
 - judge에는 대화 전문과 평가 루브릭만 주고 페르소나 원문은 주지 않는다
   (고객 정보를 모르는 상태에서 챗봇 응대 품질만 평가).
 
+### ▶ Claude Code에서 바로 해보기
+
+```text
+korean-people-persona MCP로 60세 이상 3명과 29세 이하 3명을 뽑아줘(full=true).
+각 인물이 통신사 상담봇에게 요금제 해지를 요청하는 채팅을 시뮬레이션해줘 —
+네가 고객(인물 말투 유지)과 격식 어휘만 알아듣는 깐깐한 상담봇을 모두 연기해.
+대화마다 4~6턴, 끝나면 연령대별로 봇이 실패한 지점을 표로 정리해줘.
+```
+
 ### 한계 / 주의점
 
 - 인구통계 축별 성공률 차이는 **챗봇 편향의 신호**일 수도, 시뮬레이터 자체 편향일
@@ -103,6 +131,8 @@ sample_persona({"filters": {"age_max": 29}, "n": 5, "full": true})
 ---
 
 ## 사례 3 — 한국어 합성 데이터 생성 (SDG)
+
+> 동작하는 데모: [`examples/synthetic_reviews.py`](../examples/synthetic_reviews.py)
 
 ### 시나리오
 
@@ -114,13 +144,22 @@ sample_persona({"filters": {"age_max": 29}, "n": 5, "full": true})
 
 ```jsonc
 // 도메인에 맞는 시드 풀 구성 — 검색 또는 무작위
-search_persona({"query": "캠핑", "fields": ["hobbies_and_interests"], "limit": 100})
+search_persona({"query": "\"캠핑 \" OR 캠핑장 OR 캠핑카", "fields": ["hobbies_and_interests"], "limit": 100})
 sample_persona({"n": 100, "full": true})
 ```
 
 페르소나마다 "이 사람이 쓸 법한 캠핑용품 리뷰 3건"처럼 생성을 지시하고,
 인구통계 컬럼을 생성물의 **메타데이터 라벨**로 함께 저장한다
 (나중에 축별 균형 재조정·필터링에 사용).
+
+### ▶ Claude Code에서 바로 해보기
+
+```text
+korean-people-persona MCP에서 '"캠핑 " OR 캠핑장 OR 캠핑카'로 hobbies_and_interests를
+검색해 페르소나 5명을 뽑아줘(full=true). 각자가 쓸 법한 캠핑용품 구매 리뷰를 2건씩
+생성해줘 — 품목/평점(1~5)/본문 2~4문장. 페르소나 소개 문장의 표현은 재사용하지 말 것.
+결과를 인구통계 라벨(성별/나이/지역/직업)과 함께 JSONL 코드블록으로 정리해줘.
+```
 
 ### 한계 / 주의점
 
@@ -131,6 +170,9 @@ sample_persona({"n": 100, "full": true})
 ---
 
 ## 사례 4 — 마케팅 세그먼트 테스트 / 캐릭터 캐스팅
+
+> 동작하는 데모: [`examples/copy_ab_test.py`](../examples/copy_ab_test.py) (시나리오 A) ·
+> [`examples/npc_casting.py`](../examples/npc_casting.py) (시나리오 B)
 
 ### 시나리오 A: 카피 A/B 테스트
 
@@ -157,14 +199,34 @@ search_persona({
 ```jsonc
 // "부산 영도구 50대 자영업자" 후보 5명
 sample_persona({
-  "filters": {"province": "부산광역시", "district_like": "영도%",
-              "age_min": 50, "age_max": 59, "occupation_like": "%자영업%"},
+  "filters": {"province": "부산", "district_like": "%영도%",
+              "age_min": 50, "age_max": 59, "occupation_like": "%경영%"},
   "n": 5, "full": true
 })
 ```
 
 LLM은 후보들의 서술문을 바탕으로 대사 톤·말버릇·갈등 요소를 파생시킨다.
 조연 수십 명이 필요한 장편·게임에서 특히 유용하다.
+
+### ▶ Claude Code에서 바로 해보기
+
+시나리오 A (카피 A/B):
+
+```text
+korean-people-persona MCP에서 '등산과 AND 트로트'로 50세 이상 여성을 검색해줘(full=true, 최대 10명).
+각 인물에게 등산화 광고 카피 A "흔들리지 않는 착화감, 정상까지 함께"와
+B "산에서도 무대처럼 당당하게"를 무작위 순서로 보여주고 선호와 이유를 수집한 뒤,
+선호율과 대표 이유를 집계해줘.
+```
+
+시나리오 B (캐스팅):
+
+```text
+korean-people-persona MCP에서 부산 영도구(district_like '%영도%') 50대 경영자
+(occupation_like '%경영%') 페르소나 5명을 뽑아줘(full=true).
+각 후보의 말투와 어휘 / 말버릇 / 갈등 요소 / 관계 훅을 정리한
+창작용 캐릭터 시트(마크다운)를 만들어줘. 프로필 문장은 복사하지 말고 파생할 것.
+```
 
 ### 한계 / 주의점
 
