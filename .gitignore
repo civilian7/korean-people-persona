@@ -20,3 +20,11 @@ Thumbs.db
 PROMO.md
 DRAFT*.md
 .private/
+
+# 데모 실행 산출물 (examples/*.py 결과 파일)
+/survey_result.json
+/simulator_result.json
+/synthetic_reviews.jsonl
+/ab_test_result.json
+/npc_candidates.md
+.pytest_cache/
