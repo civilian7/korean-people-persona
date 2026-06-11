@@ -13,7 +13,9 @@ HuggingFace [`nvidia/Nemotron-Personas-Korea`](https://huggingface.co/datasets/n
 - **타깃 SQLite**: 3.37+ (FTS5, STRICT 테이블, JSON1 사용)
 - **Python**: 3.10 이상 (3.11+ 권장)
 - **의존성**: `pyarrow >= 15.0`, `huggingface_hub >= 0.24` (`requirements.txt` 참조)
-- **디스크 여유**: 약 5 GB (parquet ~2GB + DB ~3GB)
+- **디스크 여유**: 약 13 GB (parquet ~2GB + DB 실측 ~10.7GB)
+
+변경 이력은 [CHANGELOG.md](CHANGELOG.md) 참조.
 
 ## 데이터 출처
 
@@ -33,15 +35,25 @@ HuggingFace [`nvidia/Nemotron-Personas-Korea`](https://huggingface.co/datasets/n
 korean-people-persona/
 ├── data/                  # 원본 parquet (gitignore — 약 2GB)
 │   └── train-*-of-*.parquet
-├── database/              # 생성된 SQLite (gitignore — 약 3GB)
+├── database/              # 생성된 SQLite (gitignore — 약 10.7GB)
 │   └── persona.db
 ├── src/
 │   ├── convert/                # parquet → SQLite 변환기
-│   │   ├── __init__.py
-│   │   └── __main__.py
-│   └── mcp_server/             # (예정) MCP 서버
+│   └── mcp_server/             # MCP 서버 (도구 5종, stdio)
+├── examples/              # 활용 데모 스크립트 (아래 '활용 데모' 참조)
+│   ├── common.py               # 데모 공용 헬퍼
+│   ├── synthetic_survey.py     # 사례 1 — 합성 설문
+│   ├── user_simulator.py       # 사례 2 — 챗봇 평가용 유저 시뮬레이터
+│   ├── synthetic_reviews.py    # 사례 3 — 합성 리뷰 데이터 생성
+│   ├── copy_ab_test.py         # 사례 4A — 카피 A/B 테스트
+│   ├── npc_casting.py          # 사례 4B — NPC/캐릭터 캐스팅
+│   ├── test_demos.py           # 단위 테스트 (pytest)
+│   └── requirements.txt        # 데모 전용 의존성 (mcp, anthropic)
+├── docs/
+│   └── use-cases.md            # LLM 에이전트 활용 사례 4종 + 프롬프트 레시피
 ├── build.sh / build.bat / build.ps1
 ├── requirements.txt
+├── CHANGELOG.md
 └── README.md
 ```
 
@@ -87,7 +99,8 @@ mv Nemotron-Personas-Korea/train-*.parquet ./data/
 
 ```sql
 CREATE TABLE persona (
-  uuid                       TEXT    PRIMARY KEY,                                  -- 32자 hex 문자열 (대시 없음)
+  id                         INTEGER PRIMARY KEY,                                  -- rowid 별칭 (자동 증가)
+  uuid                       TEXT    NOT NULL,                                     -- 원본 32자 hex 문자열 (대시 없음, 유니크 인덱스)
   -- 페르소나 서술 (긴 한국어 텍스트) ----------------------------------------------
   persona                    TEXT    NOT NULL,                                     -- 핵심 1~2문장 요약
   professional_persona       TEXT    NOT NULL,                                     -- 직업/업무 페르소나
@@ -127,12 +140,14 @@ CREATE TABLE persona (
 | `idx_persona_region` | `(province, district)` | 지역 필터 |
 | `idx_persona_edu_occ` | `(education_level, occupation)` | 학력/직업 분석 |
 | `idx_persona_family` | `(family_type, marital_status)` | 가구/결혼 분석 |
+| `idx_persona_prov_sex` | `(province, sex)` | 시도×성별 집계·층화 샘플링 커버링 |
+| `idx_persona_uuid` | `(uuid)` UNIQUE | uuid 단건 조회 |
 
 ### 컬럼 의미
 
 | 컬럼 | 설명 | 예시 |
 |---|---|---|
-| `uuid` | 32자 hex 문자열 (대시 없음). PK | `03b4f36a18e6469386d0286dddd513c8` |
+| `uuid` | 32자 hex 문자열 (대시 없음). 유니크 | `03b4f36a18e6469386d0286dddd513c8` |
 | `persona` | 핵심 1~2문장 요약 | `"농촌 지역에서 평생 농업 일을 해온 70대 남성으로..."` |
 | `*_persona` | 영역별 상세 페르소나 (수문장 길이) | 직업/스포츠/예술/여행/식문화/가족 |
 | `cultural_background` | 문화·성장 배경 서술 | |
@@ -171,13 +186,17 @@ CREATE VIRTUAL TABLE persona_fts USING fts5(
   hobbies_and_interests,
   career_goals_and_ambitions,
   content='persona',
-  content_rowid='rowid',
-  tokenize='unicode61 remove_diacritics 2',
-  prefix='2 3 4'
+  content_rowid='id',
+  tokenize='trigram'
 );
 ```
 
-**토크나이저**: `unicode61` + 2/3/4글자 prefix 인덱스. 한국어 조사 처리를 위해 검색 시 `등산*` 형태의 prefix 매칭을 권장. 형태소 분석이 필요하면 `mecab-ko` / `kiwi` 기반 커스텀 토크나이저로 교체.
+**토크나이저**: `trigram` — 연속 3글자를 토큰으로 사용하므로 형태소 분석 없이 **부분 문자열 매칭**이 된다.
+
+- **3글자 이상** 검색어는 조사가 붙은 형태도 그대로 매칭됨 (`등산과`, `트로트`) — prefix `*` 불필요
+- **2글자 이하는 매칭 불가** (`캠핑` → 0건). 공백 포함 구절(`'"캠핑 "'`)이나 합성어 OR 조합(`'캠핑장 OR 캠핑카'`)으로 우회
+- 불린 연산(`AND`/`OR`/`NOT`)과 큰따옴표 구절 검색 지원
+- 더 정교한 한국어 처리가 필요하면 `mecab-ko` / `kiwi` 기반 커스텀 토크나이저로 교체
 
 **FTS 동기화**: 데이터셋이 정적이므로 1회 `INSERT INTO persona_fts(rowid, ...) SELECT ...`로 빌드. 변경이 있으면 트리거를 추가.
 
@@ -338,7 +357,7 @@ Google `gemini-cli` 사용자 설정 `~/.gemini/settings.json`:
 > "60대 이상 여성 중 등산을 즐기는 분 10명을 샘플링해서, 새로 출시한 무릎 보호대 광고 카피에 대한 반응을 시뮬레이션해줘."
 
 에이전트는 다음 흐름으로 작동:
-1. `search_persona(query="등산*", filters={"sex":"여자","age_min":60}, limit=10, full=True)`
+1. `search_persona(query="등산을 OR 등산과", filters={"sex":"여자","age_min":60}, limit=10, full=True)`
 2. 각 페르소나를 시스템 프롬프트로 주입 → 광고 카피 평가 응답 1인 1건씩 생성
 3. 응답 클러스터링 후 인사이트 요약
 
@@ -349,7 +368,7 @@ Google `gemini-cli` 사용자 설정 `~/.gemini/settings.json`:
 search_persona(
   filters={"province":"부산", "district_like":"%영도%",
            "age_min":50, "age_max":59,
-           "occupation_like":"%자영%"},
+           "occupation_like":"%경영%"},   # occupation에 '자영업' 문자열은 없음 — 실제 값은 '소규모 상점 경영자' 등
   limit=5, full=True
 )
 ```
@@ -371,7 +390,7 @@ aggregate(
 
 ```
 search_persona(
-  query='"농촌" AND 손주*',
+  query='농촌에서 AND 손주들',
   fields=["cultural_background", "family_persona"],
   limit=5, full=True
 )
@@ -394,25 +413,79 @@ import sys; sys.path.insert(0, "src")
 from mcp_server import tools
 
 tools.stats()
-tools.search_persona(query="용접*", filters={"sex":"남자"}, limit=5)
+tools.search_persona(query="용접공", filters={"sex":"남자"}, limit=5)
 tools.sample_persona(filters={"province":"제주"}, n=3, full=True)
+```
+
+## 활용 데모 (`examples/`)
+
+[`docs/use-cases.md`](docs/use-cases.md)의 활용 사례 4종에 대응하는 **동작하는 데모 스크립트**.
+각 사례 문서에는 코드 없이 Claude Code 세션에 붙여넣어 재현하는 "▶ Claude Code에서 바로 해보기"
+프롬프트 레시피도 포함되어 있다.
+
+| 스크립트 | 사례 | 내용 | 산출물 |
+|---|---|---|---|
+| `synthetic_survey.py` | 1 | 인구 비례 층화 샘플링 합성 설문 (5점 척도 + 이유) | `survey_result.json` |
+| `user_simulator.py` | 2 | 가상 고객 ↔ 결함 내장 더미 상담봇 멀티턴 대화 + LLM judge 채점 | `simulator_result.json` |
+| `synthetic_reviews.py` | 3 | 관심사 시드 상품 리뷰 생성 + 인구통계 라벨 + 표현 복사 검출 | `synthetic_reviews.jsonl` |
+| `copy_ab_test.py` | 4A | 관심사 세그먼트 카피 A/B 선호 평가 (제시 순서 무작위화) | `ab_test_result.json` |
+| `npc_casting.py` | 4B | 배역 요구 → 후보 추출 → 캐릭터 시트 생성 | `npc_candidates.md` |
+
+`common.py`는 다섯 스크립트가 공유하는 헬퍼(MCP 접속·층화 샘플링·LLM 호출·집계)다.
+
+### 설치
+
+```bash
+pip install -r examples/requirements.txt    # mcp, anthropic
+```
+
+### 실행
+
+모든 스크립트는 **프로젝트 루트에서** 실행하며, MCP 서버를 직접 띄울 필요 없이
+스크립트가 stdio로 자체 기동한다 (`database/persona.db` 빌드 선행 필요).
+
+```bash
+# 1) dry-run — API 키 없이 MCP 파이프라인(샘플링/검색)만 검증
+python examples/synthetic_survey.py --dry-run --n 10
+python examples/user_simulator.py --dry-run --per-group 3
+python examples/synthetic_reviews.py --dry-run --n 5
+python examples/copy_ab_test.py --dry-run
+python examples/npc_casting.py --dry-run
+
+# 2) 실제 실행 — LLM 롤플레이 포함 (ANTHROPIC_API_KEY 필요, 호출량만큼 과금)
+#    Linux/macOS: export ANTHROPIC_API_KEY=sk-ant-...
+#    PowerShell:  $env:ANTHROPIC_API_KEY = "sk-ant-..."
+python examples/synthetic_survey.py --n 20 --question "주 4일제 도입에 찬성하십니까?"
+python examples/user_simulator.py --per-group 5
+python examples/synthetic_reviews.py --n 10
+python examples/copy_ab_test.py --copy-a "카피 A 문구" --copy-b "카피 B 문구"
+python examples/npc_casting.py --brief "서울 30대 미혼 직장인 조연"
+```
+
+공통 옵션: `--dry-run`(키 불필요), `--model`(기본 `claude-sonnet-4-6`), 표본 수(`--n` 등).
+세부 옵션은 각 스크립트의 `--help` 참조. 산출물은 프로젝트 루트에 저장되며 gitignore 처리되어 있다.
+
+### 테스트
+
+```bash
+python -m pytest examples/test_demos.py -v    # 순수 함수 + 더미봇 규칙 16개
 ```
 
 ## SQL 직접 쿼리
 
 ```sql
--- 1) 등산을 좋아하고 트로트 관련 언급이 있는 60대 여성
+-- 1) 등산을 좋아하고 트로트 관련 언급이 있는 60대 여성 (trigram — 3글자 이상, '*' 불필요)
 SELECT p.uuid, p.age, p.province, p.occupation
 FROM persona_fts f
-JOIN persona p ON p.rowid = f.rowid
-WHERE persona_fts MATCH '등산* AND 트로트*'
+JOIN persona p ON p.id = f.rowid
+WHERE persona_fts MATCH '등산과 AND 트로트'
   AND p.sex = '여자' AND p.age BETWEEN 60 AND 79
 ORDER BY bm25(persona_fts) LIMIT 20;
 
 -- 2) 특정 컬럼 검색 + 스니펫
 SELECT p.uuid, snippet(persona_fts, 7, '<b>', '</b>', '...', 10) AS hit
-FROM persona_fts f JOIN persona p ON p.rowid = f.rowid
-WHERE f.skills_and_expertise MATCH '용접*' LIMIT 10;
+FROM persona_fts f JOIN persona p ON p.id = f.rowid
+WHERE f.skills_and_expertise MATCH '용접공' LIMIT 10;
 
 -- 3) JSON 리스트 펼치기
 SELECT p.uuid, j.value AS hobby
@@ -477,8 +550,9 @@ PYTHONPATH=src python -m convert [--download] [--force-download]
 7. `INSERT INTO persona_fts(persona_fts) VALUES('optimize')` 후 `ANALYZE`
 8. WAL 체크포인트 후 종료
 
-## 디스크 추정
+## 디스크 사용량 (실측)
 
-- 메인 테이블 + 인덱스: 약 1.5 ~ 2.5 GB
-- FTS5 prefix 포함: 추가 1 ~ 3 GB
-- 합계 약 **3 ~ 5 GB** 예상 (실제 적재 후 갱신).
+- `persona.db` 합계 약 **10.7 GB** (메인 테이블 + 인덱스 + FTS5 trigram)
+- 빌드 소요 시간 약 24분 (장비에 따라 상이)
+- trigram 토크나이저는 모든 3글자 조합을 인덱싱하므로 unicode61 대비 용량이 크다 —
+  부분 문자열 매칭의 대가
